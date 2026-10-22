@@ -1,0 +1,21 @@
+# Build output
+.build/
+.build-*/
+build/
+*.zip
+*.dmg
+# SwiftPM / Xcode
+.swiftpm/
+*.xcodeproj/xcuserdata/
+DerivedData/
+# Secrets (never commit Sparkle private keys or notarization credentials)
+*.pem
+*.p12
+*_priv*
+.env
+# Local product notes. Update them with the product. Do not commit or publish.
+docs-internal/
+# macOS
+.DS_Store
+# Official website (deployed to Cloudflare Pages separately). Do not commit or publish.
+musecube-site/

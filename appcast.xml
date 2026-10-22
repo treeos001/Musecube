@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Musecube</title>
+        <item>
+            <title>0.1.0</title>
+            <pubDate>Thu, 22 Oct 2026 17:20:16 +0800</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/treeos001/Musecube/releases/download/v0.1.0/Musecube.zip" length="8110674" type="application/octet-stream" sparkle:edSignature="LIa9f/52+ViZnhOW6ZyDAIG+HGnp9Om6klKAb+eTq5izH7HOuOnonxknTbLrR1EOJDaiqDd6ueuS93tWPwsaDQ=="/>
+        </item>
+    </channel>
+</rss>
