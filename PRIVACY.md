@@ -11,6 +11,7 @@ Musecube collects no analytics, usage statistics or crash reports, and contains 
 - **Fraudulent-site warnings** are provided by WebKit's built-in safe-browsing service, the same as in Safari.
 - **Support link.** Help and About (“Buy a Coffee for Shukuinan”) open https://ko-fi.com/shukuinan in the system browser. That request is the browser's, not the app's. Musecube does not record the click and does not take payment inside the app.
 - **Feedback.** Help, the store footer, and About open this repository's GitHub Issues page in the system browser. That request is the browser's. Musecube does not record the click.
+- **Contact.** You can email shukuinan@musecube.app about privacy questions. This address receives mail only; it is not a support line and replies aren't guaranteed.
 
 ## Data stored on your Mac
 
@@ -39,5 +40,6 @@ Musecube 不收集使用统计、不做崩溃上报，不含任何追踪或广�
 - **诈骗网站警告**：使用 WebKit 自带的安全浏览服务，和 Safari 相同。
 - **支持链接**：帮助菜单和关于窗口的「Buy a Coffee for Shukuinan」用系统浏览器打开 https://ko-fi.com/shukuinan。这次访问是浏览器发出的，Musecube 不记录点击，也不在 App 内收款。
 - **反馈**：帮助菜单、商店底部和关于窗口用系统浏览器打开本仓库的 GitHub Issues。这次访问是浏览器发出的，Musecube 不记录点击。
+- **联系**：隐私相关的问题可以发邮件到 shukuinan@musecube.app。这个地址只用于收信，不是客服渠道，不保证回复。
 - **本地数据**：工具列表、图标、下载记录、设置和各网站登录信息只保存在你的 Mac 上的沙盒容器里，按网站分开存放，不会同步或上传。
 - **已实现的安全措施**：App Sandbox；只允许 HTTPS（本机 http 除外）；每个网站单独的数据存储；下载文件加隔离标记，安装包下载需确认，网页自己生成的文件在写入前会再问一次；每个工具页面注入一段短脚本，只把 `blob:` / `data:` 的 `window.open` 转成本机下载；打开 `accounts.google.com` 会被拦住，选「在浏览器里使用」后到系统浏览器打开该工具，浏览器里的登录不会复制回 App；沙盒不再例外读取其他 App 的数据目录。

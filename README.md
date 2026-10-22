@@ -93,3 +93,9 @@ Musecube is free and open source. If it helps you, you can buy the author a coff
 我是设计师和插画师。工作里常要用一些很棒的网页工具，不想每次都在浏览器的标签页里翻找，所以做了 Musecube，打开就能用。
 
 Musecube 完全免费、开源。如果它帮到了你，欢迎请作者喝杯咖啡 ☕
+
+## Contact
+
+Email: shukuinan@musecube.app (receive-only; replies aren't guaranteed). For bugs and feature requests, please use GitHub Issues.
+
+邮箱：shukuinan@musecube.app（只用于收信，不保证回复）。问题反馈和功能建议请走 GitHub Issues。
