@@ -358,7 +358,7 @@ final class ToolStore: ObservableObject {
 enum SiteMeta {
     /// Honest app identifier (no browser impersonation). Appended to WebKit's default UA in web views.
     static let appUA: String = {
-        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.1"
         return "Musecube/\(v)"
     }()
 

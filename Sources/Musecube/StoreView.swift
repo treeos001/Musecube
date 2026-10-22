@@ -93,7 +93,7 @@ struct StoreView: View {
                         }
                         Divider()
                         ForEach(groups, id: \.0) { g in
-                            Text(g.0).font(.headline)
+                            Text(L(g.0)).font(.headline)
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 12)], spacing: 12) {
                                 ForEach(g.1) { t in StoreCard(item: t, store: store, open: open, preview: { previewing = $0 }, remove: delete) }
                             }
@@ -122,7 +122,7 @@ extension StoreView {
             HStack(spacing: 6) {
                 CategoryChip(title: L("全部"), selected: category == nil) { category = nil }
                 ForEach(categories, id: \.self) { c in
-                    CategoryChip(title: c, selected: category == c) { category = (category == c ? nil : c) }
+                    CategoryChip(title: L(c), selected: category == c) { category = (category == c ? nil : c) }
                 }
             }
             .padding(.horizontal, 16)

@@ -235,3 +235,15 @@
 
 "store.remove" = "Remove";
 "从侧边栏移除" = "Remove from sidebar";
+
+/* Store categories */
+"PDF/文件" = "PDF & Files";
+"写作/学术" = "Writing & Research";
+"图片" = "Images";
+"安全" = "Security";
+"开发" = "Developer";
+"效率/计算" = "Productivity & Math";
+"白板画图" = "Whiteboard & Diagrams";
+"翻译" = "Translation";
+"设计" = "Design";
+"音视频" = "Audio & Video";

@@ -12,7 +12,7 @@ The app shows Musecube in every localization. `CFBundleDisplayName` and `CFBundl
 ## Signing & notarization
 `./build_app.sh` without `SIGN_IDENTITY` produces an ad-hoc signature. Do not distribute that build.
 
-A shareable build is signed with Developer ID, notarized, and stapled. Source newer than the 2026-10-21 stapled build is not notarized. Sign, notarize, and staple again before the next release. Replace the download zip only after stapling. The zip is not committed.
+A shareable build is signed with Developer ID, notarized, and stapled. Release v0.1.1 (build 2) was signed, notarized, and stapled on 2026-10-22. Source newer than that build is not notarized. Sign, notarize, and staple again before the next release. Replace the download zip only after stapling. The zip is not committed.
 
 - Identity: Developer ID Application: Your Name (TEAMID)
 - Keychain profile: the notarytool profile on your Mac, for example `notarytool-profile`
