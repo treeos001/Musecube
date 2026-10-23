@@ -8,7 +8,7 @@
             <sparkle:version>2</sparkle:version>
             <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/treeos001/Musecube/releases/download/v0.1.1/Musecube.zip" length="7803343" type="application/octet-stream" sparkle:edSignature="5TCvULBhfqneeVS9RUY0hPiwt8TFklsZsV+9TrENYQVMWmgdj0OrzeJ/mgzvAwyyn+gJSokvdeNEuisxoLVGCg=="/>
+            <enclosure url="https://github.com/treeos001/Musecube/releases/download/v0.1.1/Musecube.zip" length="7738101" type="application/octet-stream" sparkle:edSignature="HfzyGrvhvFI8EaGDddvows0OCmHdtBHbYSaU0aJLysu94e6TJDg7qCawMFVP6/V8E1+KoX8BZZ17GorSunOyBw=="/>
         </item>
         <item>
             <title>0.1.0</title>

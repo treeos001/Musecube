@@ -19,10 +19,11 @@ A shareable build is signed with Developer ID, notarized, and stapled. Release v
 
 ```bash
 SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./build_app.sh
-ditto -c -k --keepParent build/Musecube.app /tmp/Musecube-submit.zip
+ditto -c -k --norsrc --keepParent build/Musecube.app /tmp/Musecube-submit.zip
 xcrun notarytool submit /tmp/Musecube-submit.zip --keychain-profile notarytool-profile --wait
 xcrun stapler staple build/Musecube.app
-ditto -c -k --keepParent build/Musecube.app Musecube.zip
+# --norsrc avoids AppleDouble `._*` entries that break Gatekeeper after unzip
+ditto -c -k --norsrc --keepParent build/Musecube.app Musecube.zip
 ```
 
 ## Feedback
