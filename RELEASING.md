@@ -1,5 +1,8 @@
 # Releasing Musecube
 
+## Public repository
+The public repo `treeos001/Musecube` does not include tests or other private-only paths. Run `./scripts/publish-public.sh` from the private checkout to copy an allowlisted snapshot, strip extension-only code, remove the `Tests/` tree, and rewrite `Package.swift` to drop the `MusecubeTests` target so the public tree still builds with `swift build`. `DRY_RUN=1` generates the snapshot and runs checks without pushing; the script archives `HEAD` (committed code only), so uncommitted local changes are not part of that validation.
+
 ## Build
 `./build_app.sh` → `build/Musecube.app` (includes Sparkle).
 

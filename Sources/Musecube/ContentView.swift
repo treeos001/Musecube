@@ -1,11 +1,146 @@
 import AppKit
+import ChildPaneColorKit
 import SwiftUI
 import WebKit
 
+enum WebViewHostRole: Equatable {
+    case main
+    case child(UUID)
+    case other
+}
+
 struct WebViewHost: NSViewRepresentable {
     let webView: WKWebView
-    func makeNSView(context: Context) -> WKWebView { webView }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
+    var role: WebViewHostRole = .other
+
+    func makeNSView(context: Context) -> WebViewBox {
+        let box = WebViewBox()
+        box.bindRole(role)
+        box.adopt(webView)
+        return box
+    }
+
+    func updateNSView(_ box: WebViewBox, context: Context) {
+        if box.role != role { box.unbindRole(); box.bindRole(role) }
+        box.adopt(webView)
+    }
+
+    static func dismantleNSView(_ box: WebViewBox, coordinator: ()) {
+        box.unbindRole()
+        box.releaseWebView()
+    }
+}
+
+/// Holds a WKWebView without taking ownership. Swapping pages reparents the same view, so input and scroll stay.
+final class WebViewBox: NSView {
+    private(set) var role: WebViewHostRole = .other
+    private weak var held: WKWebView?
+
+    private static weak var _currentMainBox: WebViewBox?
+    static weak var currentMainBox: WebViewBox? { _currentMainBox }
+
+    func bindRole(_ role: WebViewHostRole) {
+        self.role = role
+        switch role {
+        case .main:
+            Self._currentMainBox = self
+            ChildPaneManager.shared.registerMainWebViewBox(self)
+        case .child(let id):
+            ChildPaneManager.shared.registerChildWebViewBox(self, childID: id)
+        case .other:
+            break
+        }
+    }
+
+    func unbindRole() {
+        switch role {
+        case .main:
+            if Self._currentMainBox === self { Self._currentMainBox = nil }
+            ChildPaneManager.shared.unregisterMainWebViewBox(self)
+        case .child(let id):
+            ChildPaneManager.shared.unregisterChildWebViewBox(self, childID: id)
+        case .other:
+            break
+        }
+        role = .other
+    }
+
+    func adopt(_ webView: WKWebView) {
+        let moved = webView.superview !== self
+        let priorSuper = webView.superview
+        if held !== webView {
+            if let old = held, old !== webView, old.superview === self {
+                old.removeFromSuperview()
+            }
+            held = webView
+        }
+        ensureAttached(webView)
+        if moved, webView.superview === self {
+            let from = priorSuper.map { String(describing: type(of: $0)) } ?? "nil"
+            let wv = Unmanaged.passUnretained(webView).toOpaque()
+            #if DEBUG
+            NSLog("%@", "MCSWAP adopt role=\(roleLogTag) wv=\(wv) from=\(from)")
+            #endif
+        }
+    }
+
+    func releaseWebView() {
+        guard let held, held === self.held else {
+            self.held = nil
+            return
+        }
+        if held.superview === self {
+            if let main = Self._currentMainBox, main !== self, main.held === held {
+                let wv = Unmanaged.passUnretained(held).toOpaque()
+                #if DEBUG
+                NSLog("%@", "MCSWAP release skip role=\(roleLogTag) wv=\(wv) main-holds")
+                #endif
+                self.held = nil
+                return
+            }
+            let wv = Unmanaged.passUnretained(held).toOpaque()
+            #if DEBUG
+            NSLog("%@", "MCSWAP release role=\(roleLogTag) wv=\(wv)")
+            #endif
+            held.removeFromSuperview()
+        }
+        self.held = nil
+    }
+
+    private var roleLogTag: String {
+        switch role {
+        case .main: return "main"
+        case .child(let id): return "child:\(id.uuidString.prefix(8))"
+        case .other: return "other"
+        }
+    }
+
+    private func ensureAttached(_ webView: WKWebView) {
+        if webView.superview === self {
+            webView.frame = bounds
+            return
+        }
+        webView.removeFromSuperview()
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        webView.frame = bounds
+        addSubview(webView)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let held, held.superview == nil { ensureAttached(held) }
+    }
+
+    override func layout() {
+        super.layout()
+        guard let held else { return }
+        if held.superview == nil {
+            ensureAttached(held)
+        } else if held.superview === self {
+            held.frame = bounds
+        }
+    }
 }
 
 
@@ -14,6 +149,8 @@ struct ContentView: View {
     @ObservedObject var web: WebController
     @ObservedObject var quick: QuickOpenState
     @ObservedObject private var net = NetworkMonitor.shared
+    @ObservedObject private var childPaneManager = ChildPaneManager.shared
+    @ObservedObject private var childPaneDropHighlight = ChildPaneManager.shared.mainDropHighlight
     @State private var showAdd = false
     @State private var renaming: Tool?
     @State private var showStore = false
@@ -37,11 +174,22 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 480, minHeight: 360)
-        .onAppear { web.load(store.selected) }
-        .onChange(of: store.selectedID) { _, id in
+        .coordinateSpace(name: "musecubeWindowContent")
+        .onAppear {
+            web.load(store.selected)
+            childPaneManager.setCurrentTool(store.selectedID)
+        }
+        .onChange(of: store.selectedID) { oldID, id in
             if id != nil { showStore = false }
             quick.hide()
+            ToolWindowFrameCoordinator.shared.handleToolSwitch(from: oldID, to: id)
             web.load(store.selected)
+            childPaneManager.setCurrentTool(id)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .childPaneSwapToMain)) { note in
+            guard let id = note.object as? UUID,
+                  let child = childPaneManager.currentToolChildren.first(where: { $0.id == id }) else { return }
+            handleSwapToMain(child)
         }
         .sheet(isPresented: $showAdd) { AddToolSheet(store: store, isPresented: $showAdd) }
         .sheet(item: $renaming) { t in RenameSheet(tool: t, store: store, renaming: $renaming) }
@@ -49,9 +197,9 @@ struct ContentView: View {
 
     // MARK: Sidebar
 
-    /// Selection highlight and the bottom Add square share this size (sidebar is 64pt wide).
-    static let sidebarRow: CGFloat = 64    // = sidebar width: full-bleed square rows
-    static let sidebarIcon: CGFloat = 42
+    /// Selection highlight uses adaptive row height; Add button keeps max icon metrics (sidebar is 64pt wide).
+    static let sidebarRow: CGFloat = SidebarIconSizing.defaultMaxCellHeight
+    static let sidebarIcon: CGFloat = SidebarIconSizing.defaultMaxIcon
     static let sidebarRadius: CGFloat = 10
     @State private var dragging: UUID?
 
@@ -70,43 +218,50 @@ struct ContentView: View {
             // default row highlight + icon tile, which stacked into box-in-box.
             // A List keeps a few points of row inset on macOS that listRowInsets can't remove,
             // so the column is a ScrollView: tiles are exactly sidebar width minus 4pt per side.
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 0) {
-                ForEach(store.visibleTools) { tool in
-                    let selected = store.selectedID == tool.id
-                    ToolIcon(image: store.icon(for: tool), name: tool.name, size: Self.sidebarIcon)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: Self.sidebarRow)
-                        .background(Rectangle().fill(selected ? Color.primary.opacity(0.10) : Color.clear))
-                        .contentShape(Rectangle())
-                        .onTapGesture { store.selectedID = tool.id }
-                        .onDrag { dragging = tool.id; return NSItemProvider(object: tool.id.uuidString as NSString) }
-                        .onDrop(of: [.text], delegate: SidebarDropDelegate(target: tool.id, store: store, dragging: $dragging))
-                        .help(tool.name)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(tool.name)
-                        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-                        .accessibilityAction { store.selectedID = tool.id }
-                        .contextMenu {
-                            Button(L("重命名…")) { renaming = tool }
-                            if FeatureFlags.simplifyEnabled {
-                                Button(L("清除此网站的自定义精简规则")) {
-                                    if let u = URL(string: tool.url), let d = domainKey(for: u) {
-                                        web.rules.clear(d); web.applyCurrent()
+            GeometryReader { listGeo in
+                let layout = SidebarIconSizing.layout(
+                    availableHeight: listGeo.size.height,
+                    count: store.visibleTools.count
+                )
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: layout.spacing) {
+                        ForEach(store.visibleTools) { tool in
+                            let selected = store.selectedID == tool.id
+                            ToolIcon(image: store.icon(for: tool), name: tool.name, size: layout.iconSize)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: layout.cellHeight)
+                                .background(Rectangle().fill(selected ? Color.primary.opacity(0.10) : Color.clear))
+                                .contentShape(Rectangle())
+                                .onTapGesture { store.selectedID = tool.id }
+                                .onDrag { dragging = tool.id; return NSItemProvider(object: tool.id.uuidString as NSString) }
+                                .onDrop(of: [.text], delegate: SidebarDropDelegate(target: tool.id, store: store, dragging: $dragging))
+                                .help(tool.name)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(tool.name)
+                                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                                .accessibilityAction { store.selectedID = tool.id }
+                                .contextMenu {
+                                    Button(L("重命名…")) { renaming = tool }
+                                    if FeatureFlags.simplifyEnabled {
+                                        Button(L("清除此网站的自定义精简规则")) {
+                                            if let u = URL(string: tool.url), let d = domainKey(for: u) {
+                                                web.rules.clear(d); web.applyCurrent()
+                                            }
+                                        }
                                     }
+                                    Button(web.isPinned(tool.id) ? L("取消常驻后台") : L("常驻后台（切走也不关闭）")) { web.togglePinned(tool.id) }
+                                    Button(L("隐藏")) { store.setHidden(tool.id, true) }
+                                    Divider()
+                                    Button(L("退出登录 / 清除此工具数据…")) { confirmClear(tool) }
+                                    Button(L("删除…")) { confirmDelete(tool) }
                                 }
-                            }
-                            Button(web.isPinned(tool.id) ? L("取消常驻后台") : L("常驻后台（切走也不关闭）")) { web.togglePinned(tool.id) }
-                            Button(L("隐藏")) { store.setHidden(tool.id, true) }
-                            Divider()
-                            Button(L("退出登录 / 清除此工具数据…")) { confirmClear(tool) }
-                            Button(L("删除…")) { confirmDelete(tool) }
                         }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .onDrop(of: [.text], isTargeted: nil) { _ in dragging = nil; return true }
                 }
-                }
-                .frame(maxWidth: .infinity)
-                .onDrop(of: [.text], isTargeted: nil) { _ in dragging = nil; return true }
             }
+            .frame(maxHeight: .infinity)
 
             Divider()
             // U3: fixed below the list so it stays visible however many tools there are.
@@ -172,12 +327,7 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                VStack(spacing: 0) {
-                    WebViewHost(webView: web.webView).id(ObjectIdentifier(web.webView))
-                }
-                if let err = web.loadError { errorPage(err) }
-                if FeatureFlags.simplifyEnabled { controlBar.padding(8) }
-                if web.findVisible { findBar.padding(8) }
+                mainContentArea
             }
         }
         .overlay(alignment: .top) {
@@ -193,6 +343,82 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .bottom) { banners.padding(12) }
+    }
+    
+    private var mainContentArea: some View {
+        GeometryReader { geometry in
+            let totalWidth = geometry.size.width
+            let expandedCount = childPaneManager.expandedChildren.count
+            let showSplit = ChildPaneLayoutCapacity.showsSplitPane(expandedChildCount: expandedCount)
+            let layout = childPaneManager.currentLayout(contentWidth: totalWidth)
+
+            HStack(spacing: 0) {
+                mainWebArea(width: showSplit ? layout.mainWidth : totalWidth)
+                    .overlay(alignment: .trailing) {
+                        if showSplit {
+                            MainChildSplitDividerLine()
+                        }
+                    }
+
+                if showSplit {
+                    let childTotal = layout.columnWidths.reduce(0, +)
+                        + ChildPaneLayoutCapacity.columnDividerTotalWidth(expandedCount: expandedCount)
+                    if layout.needsScroll {
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            childPaneArea(columnWidths: layout.columnWidths)
+                                .frame(width: childTotal)
+                        }
+                        .frame(width: layout.childGroupViewportWidth)
+                    } else {
+                        childPaneArea(columnWidths: layout.columnWidths)
+                            .frame(width: layout.childGroupViewportWidth)
+                    }
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+            .overlay {
+                if showSplit {
+                    ChildPaneDividerOverlaySurface(
+                        dividerCenters: [
+                            ChildPaneColumnDividerHitTest.mainChildDividerCenterX(mainWidth: layout.mainWidth),
+                        ],
+                        onDrag: { _, delta in childPaneManager.dragMainChildDivider(delta: delta) },
+                        onDoubleClick: { _ in childPaneManager.resetMainChildDivider() }
+                    )
+                }
+            }
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: ChildPaneTabAnchorKey.self, value: proxy.frame(in: .global))
+                }
+            }
+            .onPreferenceChange(ChildPaneTabAnchorKey.self) { childPaneManager.tabAnchorGlobalFrame = $0 }
+            .onAppear { childPaneManager.noteMainContentWidth(totalWidth) }
+            .onChange(of: totalWidth) { _, w in childPaneManager.noteMainContentWidth(w) }
+        }
+    }
+    
+    private func mainWebArea(width: CGFloat) -> some View {
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                WebViewHost(webView: web.webView, role: .main)
+            }
+            .background { MainWebDropZoneHost() }
+            .overlay { MainDropZone(isTargeted: childPaneDropHighlight.isTargeted) }
+            
+            if let err = web.loadError { errorPage(err) }
+            if FeatureFlags.simplifyEnabled { controlBar.padding(8) }
+            if web.findVisible { findBar.padding(8) }
+        }
+        .frame(width: width)
+    }
+    
+    private func childPaneArea(columnWidths: [CGFloat]) -> some View {
+        ChildPaneView(manager: childPaneManager, columnWidths: columnWidths, onSwapToMain: handleSwapToMain)
+    }
+    
+    private func handleSwapToMain(_ child: ChildPage) {
+        web.swapWithChild(child)
     }
 
 
@@ -368,7 +594,7 @@ struct ToolIcon: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 7).fill(Color.accentColor)
                     Text(String(name.prefix(1)).uppercased())
-                        .font(.system(size: 15, weight: .bold)).foregroundColor(.white)
+                        .font(.system(size: max(11, size * 15 / 42), weight: .bold)).foregroundColor(.white)
                 }
             }
         }

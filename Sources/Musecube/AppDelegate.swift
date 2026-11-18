@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var aboutWindow: NSWindow?
     private var statusItem: NSStatusItem?
     private var appearanceObserver: NSObjectProtocol?
+    private var childPaneEarTabs: ChildPaneEarWindowController?
     private lazy var statusMenu: NSMenu = {
         let m = NSMenu()
         m.delegate = self
@@ -49,8 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: ContentView(store: store, web: web, quick: quick))
         window.center()
-        window.setFrameAutosaveName("WebToolboxMain")
         window.delegate = self
+        ChildPaneManager.shared.mainWindow = window
+        ToolWindowFrameCoordinator.shared.attach(to: window)
+        childPaneEarTabs = ChildPaneEarWindowController()
+        childPaneEarTabs?.attach(to: window)
         setUpStatusItem()
         applyAppearanceIcon()
         appearanceObserver = DistributedNotificationCenter.default.addObserver(
@@ -108,9 +112,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let a = NSAlert()
             a.messageText = L("已在菜单栏继续运行，⌘Q 可退出")
             a.addButton(withTitle: L("好"))
-            a.beginSheetModal(for: window) { [weak self] _ in self?.window.orderOut(nil) }
+            a.beginSheetModal(for: window) { [weak self] _ in
+                self?.childPaneEarTabs?.suspendForOrderedOutMainWindow()
+                self?.window.orderOut(nil)
+            }
             return false
         }
+        childPaneEarTabs?.suspendForOrderedOutMainWindow()
         window.orderOut(nil)
         return false
     }
@@ -191,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if NSApp.activationPolicy() != (DockPrefs.showDockIcon ? .regular : .accessory) { applyDockPolicy() }
         if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
+        childPaneEarTabs?.resumeForShownMainWindow()
         NSApp.activate(ignoringOtherApps: true)
     }
 

@@ -197,6 +197,7 @@
 "在 %@ 中未开启" = "Off in %@";
 "通用" = "General";
 "在程序坞显示图标" = "Show icon in Dock";
+"全屏时隐藏标签" = "Hide tabs in full screen";
 "打开 Musecube" = "Open Musecube";
 "偏好设置…" = "Settings…";
 "退出" = "Quit";
@@ -247,3 +248,16 @@
 "翻译" = "Translation";
 "设计" = "Design";
 "音视频" = "Audio & Video";
+
+/* Child pane feature */
+"在新窗口打开" = "Open Link in New Window";
+"子页面" = "Child page";
+"收起到标签" = "Collapse to tab";
+"关闭子页面" = "Close child page";
+"展开" = "Expand";
+"移到主区域" = "Move to main area";
+"拖到主区域可交换位置" = "Drag to main area to swap positions";
+"拖动手柄" = "Drag handle";
+"点击展开，拖到主区域可交换位置" = "Click to expand, drag to main area to swap positions";
+"拖动调整分割比例" = "Drag to adjust split ratio";
+"子页面标签" = "Child page tabs";

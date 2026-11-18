@@ -1,7 +1,8 @@
 import AppKit
+import ChildPaneColorKit
 import WebKit
 
-typealias AppWebView = WKWebView
+typealias AppWebView = ExtWebView
 
 /// Weak proxy so WKUserContentController doesn't retain the controller.
 final class WeakScriptHandler: NSObject, WKScriptMessageHandler {
@@ -52,6 +53,11 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
     private var pool: [UUID: WKWebView] = [:]
     private var lru: [UUID] = []
     private var popups: [NSWindow] = []
+    private var popupCloseObs: [ObjectIdentifier: NSObjectProtocol] = [:]
+    private var contextMenuLinkURL: [ObjectIdentifier: URL] = [:]
+    private var contextMenuDockState = ChildPaneContextMenuDockState(timeout: 10)
+    private var contextMenuDockEndObs: [ObjectIdentifier: NSObjectProtocol] = [:]
+    private var contextMenuDockExpiry: [ObjectIdentifier: DispatchWorkItem] = [:]
     /// Which tool a web view (tool page or popup) belongs to, and each tool's home URL.
     private var owner: [ObjectIdentifier: UUID] = [:]
     private var toolURLs: [UUID: String] = [:]
@@ -78,20 +84,33 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
     }
 
     private func trim(limit: Int = WebController.keepAlive) {
+        let memoryPressure = limit == 1
         while true {
-            // Background-running tools (timers) are not evicted by the normal LRU, only under memory pressure.
-            let unpinned = lru.filter { !pinned.contains($0) && (limit == 1 || !(knownTools[$0].map { keepsRunningInBackground($0.url) } ?? false)) }
-            guard unpinned.count > limit, let old = unpinned.last(where: { $0 != currentToolID }) else { break }
+            let candidates = lru.filter { id in
+                ChildPaneToolPoolEvictionPolicy.isEligibleForEviction(
+                    toolID: id,
+                    currentToolID: currentToolID,
+                    isPinned: pinned.contains(id),
+                    keepsRunningInBackground: knownTools[id].map { keepsRunningInBackground($0.url) } ?? false,
+                    memoryPressure: memoryPressure
+                )
+            }
+            guard candidates.count > limit, let old = candidates.last else { break }
             evict(old)
         }
     }
 
     /// Close a background page but remember its scroll position and back/forward history.
     private func evict(_ id: UUID) {
+        guard id != currentToolID else { return }
+        ChildPaneManager.shared.closeAllForTool(id)
         lru.removeAll { $0 == id }
         if let wv = pool.removeValue(forKey: id) {
             if let st = wv.interactionState { savedState[id] = st }
             wv.stopLoading()
+            wv.pauseAllMediaPlayback(completionHandler: nil)
+            wv.closeAllMediaPresentations(completionHandler: nil)
+            wv.setAllMediaPlaybackSuspended(true, completionHandler: nil)
             owner.removeValue(forKey: ObjectIdentifier(wv))
             pageEvent(.closed, wv)
         }
@@ -225,6 +244,7 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
         ucc.add(WeakScriptHandler(self), name: "wtb")
         // Narrow download helper: only turns window.open(blob:/data:) into a native download.
         ucc.addUserScript(WKUserScript(source: Scripts.downloadHelper, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        ucc.addUserScript(WKUserScript(source: Scripts.contextMenuLinkHelper, injectionTime: .atDocumentStart, forMainFrameOnly: false))
         ucc.add(WeakScriptHandler(self), name: "wtbdl")
         config.userContentController = ucc
         config.applicationNameForUserAgent = SiteMeta.appUA
@@ -253,6 +273,7 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
 
     /// Drop a tool's page (e.g. the tool was deleted).
     func forget(_ id: UUID) {
+        ChildPaneManager.shared.closeAllForTool(id)
         if let wv = pool.removeValue(forKey: id) { wv.stopLoading(); owner.removeValue(forKey: ObjectIdentifier(wv)); pageEvent(.closed, wv) }
         lru.removeAll { $0 == id }
         savedState.removeValue(forKey: id); errors.removeValue(forKey: id); errorKinds.removeValue(forKey: id)
@@ -300,6 +321,15 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
             previous.pauseAllMediaPlayback(completionHandler: nil)
             previous.setAllMediaPlaybackSuspended(true, completionHandler: nil)
         }
+        if let prev = previousID, prev != tool.id {
+            for child in ChildPaneManager.shared.childPages[prev] ?? [] {
+                child.webView.pauseAllMediaPlayback(completionHandler: nil)
+                child.webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
+            }
+        }
+        for child in ChildPaneManager.shared.childPages[tool.id] ?? [] {
+            child.webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
+        }
         webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
         pageEvent(.activated, webView)
         loadError = errors[tool.id]
@@ -310,6 +340,38 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
         observeProgress()
         if crashed.remove(tool.id) != nil { webView.reload() }
         trim()
+    }
+    
+    /// Exchange the current tool page with a docked child. Both WKWebViews stay alive, so input and scroll position remain.
+    func swapWithChild(_ child: ChildPage) {
+        guard let toolID = currentToolID, child.openerToolID == toolID else { return }
+        let outgoing = webView
+        let incoming = child.webView
+        guard outgoing !== incoming else { return }
+        child.preferredWidth = nil
+        guard ChildPaneManager.shared.detach(child.id) != nil else { return }
+
+        let title = outgoing.title.flatMap { $0.isEmpty ? nil : $0 } ?? toolNames[toolID] ?? L("子页面")
+        let parked = ChildPaneManager.shared.addChild(outgoing, openerToolID: toolID, title: title)
+        parked.onClose = { [weak self] in
+            guard let self else { return }
+            self.owner.removeValue(forKey: ObjectIdentifier(outgoing))
+            self.pageEvent(.closed, outgoing)
+        }
+
+        pool[toolID] = incoming
+        owner[ObjectIdentifier(incoming)] = toolID
+        owner[ObjectIdentifier(outgoing)] = toolID
+        webView = incoming
+        incoming.setAllMediaPlaybackSuspended(false, completionHandler: nil)
+        pageEvent(.activated, incoming)
+        errors.removeValue(forKey: toolID)
+        errorKinds.removeValue(forKey: toolID)
+        loadError = nil
+        loadErrorKind = nil
+        findNoMatch = false
+        observeProgress()
+        ChildPaneManager.shared.scheduleSwapReconcile(web: self)
     }
 
     /// Sign-in pages that refuse embedded web views (Google blocks them outright).
@@ -387,6 +449,14 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
         case "ruleStatus":
             let found = (body["found"] as? Bool) ?? true
             ruleMissing = simplified && hasRule && !picking && !found
+        case "ctxnav":
+            guard let wv = message.webView else { break }
+            let oid = ObjectIdentifier(wv)
+            if let s = body["url"] as? String, !s.isEmpty, let u = URL(string: s) {
+                contextMenuLinkURL[oid] = u
+            } else {
+                contextMenuLinkURL.removeValue(forKey: oid)
+            }
         default: break
         }
     }
@@ -610,9 +680,13 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
 
     // MARK: - Downloads (handed to DownloadManager)
 
+    private func openerToolID(for webView: WKWebView) -> UUID? {
+        owner[ObjectIdentifier(webView)] ?? ChildPaneManager.shared.openerToolID(for: webView)
+    }
+
     /// Tool (name, home URL, its main web view) that owns a tool page or popup.
     private func toolInfo(for wv: WKWebView) -> (name: String, url: String?, main: WKWebView) {
-        guard let id = owner[ObjectIdentifier(wv)] else { return (wv.url?.host ?? L("网页"), wv.url?.absoluteString, wv) }
+        guard let id = openerToolID(for: wv) else { return (wv.url?.host ?? L("网页"), wv.url?.absoluteString, wv) }
         return (toolNames[id] ?? L("工具"), toolURLs[id], pool[id] ?? wv)
     }
 
@@ -689,6 +763,71 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
         }
     }
 
+    // MARK: - Context menu → docked child
+
+    func contextMenuURL(for webView: WKWebView) -> URL? {
+        contextMenuLinkURL[ObjectIdentifier(webView)]
+    }
+
+    func armContextMenuDock(for webView: WKWebView, menu: NSMenu) {
+        let oid = ObjectIdentifier(webView)
+        let now = Date()
+        contextMenuDockState.arm(webView: oid, at: now)
+        if let existing = contextMenuDockEndObs.removeValue(forKey: oid) {
+            NotificationCenter.default.removeObserver(existing)
+        }
+        contextMenuDockExpiry.removeValue(forKey: oid)?.cancel()
+        let expiry = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            _ = self.contextMenuDockState.disarm(webView: oid)
+            self.contextMenuDockExpiry.removeValue(forKey: oid)
+            if let t = self.contextMenuDockEndObs.removeValue(forKey: oid) {
+                NotificationCenter.default.removeObserver(t)
+            }
+        }
+        contextMenuDockExpiry[oid] = expiry
+        DispatchQueue.main.asyncAfter(deadline: .now() + contextMenuDockState.timeout, execute: expiry)
+        let token = NotificationCenter.default.addObserver(
+            forName: NSMenu.didEndTrackingNotification,
+            object: menu,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            _ = self.contextMenuDockState.disarm(webView: oid)
+            self.contextMenuDockExpiry.removeValue(forKey: oid)?.cancel()
+            if let t = self.contextMenuDockEndObs.removeValue(forKey: oid) {
+                NotificationCenter.default.removeObserver(t)
+            }
+        }
+        contextMenuDockEndObs[oid] = token
+    }
+
+    private func consumeContextMenuDock(from webView: WKWebView) -> Bool {
+        let oid = ObjectIdentifier(webView)
+        contextMenuDockExpiry.removeValue(forKey: oid)?.cancel()
+        if let t = contextMenuDockEndObs.removeValue(forKey: oid) {
+            NotificationCenter.default.removeObserver(t)
+        }
+        return contextMenuDockState.consume(webView: oid)
+    }
+
+    func openURLInDockedChild(_ url: URL, from webView: WKWebView) {
+        if !Self.schemeAllowed(url) { return }
+        if Self.needsExternalBrowser(url) {
+            handleGoogleSignIn(from: webView, blocked: url)
+            return
+        }
+        if Self.isInsecure(url) { warnInsecure(url); return }
+        guard let openerToolID = openerToolID(for: webView) else { return }
+        let cfg = webView.configuration.copy() as! WKWebViewConfiguration
+        if ChildPaneManager.isAuthURL(url) || ChildPaneManager.isPaymentURL(url) {
+            _ = makePopup(configuration: cfg, opener: webView, title: url.host, load: url)
+            return
+        }
+        _ = makeDockedChild(configuration: cfg, opener: webView, openerToolID: openerToolID,
+                            title: url.host ?? L("子页面"), load: url)
+    }
+
     // MARK: - UI delegate
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
@@ -716,19 +855,58 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
             warnInsecure(u)
             return nil
         }
-        // Real pop-up window that shares the opener's configuration, so window.opener /
-        // postMessage based sign-ins (Apple, GitHub, Microsoft…) can complete.
-        return makePopup(configuration: configuration, opener: webView, title: navigationAction.request.url?.host,
+        
+        let requestURL = navigationAction.request.url
+        let oid = ObjectIdentifier(webView)
+        let dockPending = contextMenuDockState.isPending(webView: oid, at: Date())
+        let fromContextMenu = dockPending && ChildPanePopupDockPolicy.resemblesContextMenuWindowRequest(
+            hasTargetFrame: navigationAction.targetFrame != nil,
+            navigationTypeIsOther: navigationAction.navigationType == .other,
+            contextMenuDockPending: true
+        )
+        if fromContextMenu {
+            _ = consumeContextMenuDock(from: webView)
+        }
+        let shouldDock = ChildPaneManager.shouldDockPopup(url: requestURL, windowFeatures: windowFeatures,
+                                                          fromContextMenu: fromContextMenu)
+        
+        if shouldDock, let openerToolID = openerToolID(for: webView) {
+            return makeDockedChild(configuration: configuration, opener: webView, openerToolID: openerToolID,
+                                   title: requestURL?.host ?? L("子页面"), load: requestURL)
+        }
+        
+        // Auth/payment/small dialog windows stay floating.
+        return makePopup(configuration: configuration, opener: webView, title: requestURL?.host,
                          width: windowFeatures.width.map { CGFloat(truncating: $0) },
                          height: windowFeatures.height.map { CGFloat(truncating: $0) })
     }
+    
+    /// Creates a child page docked in the right pane instead of a floating window.
+    func makeDockedChild(configuration: WKWebViewConfiguration, opener: WKWebView?, openerToolID: UUID,
+                         title: String, load url: URL? = nil) -> WKWebView {
+        let child = AppWebView(frame: .zero, configuration: configuration)
+        owner[ObjectIdentifier(child)] = openerToolID
+        child.navigationDelegate = self
+        child.uiDelegate = self
+        child.allowsBackForwardNavigationGestures = true
+        pageEvent(.opened, child)
+        
+        let childPage = ChildPaneManager.shared.addChild(child, openerToolID: openerToolID, title: title)
+        childPage.onClose = { [weak self] in
+            self?.owner.removeValue(forKey: ObjectIdentifier(child))
+            self?.pageEvent(.closed, child)
+        }
+        
+        if let u = url { child.load(URLRequest(url: u)) }
+        return child
+    }
 
-    /// In-app pop-up window.
+    /// In-app floating pop-up window (for auth/payment/small dialogs).
     @discardableResult
     func makePopup(configuration: WKWebViewConfiguration, opener: WKWebView?, title: String?,
                    width: CGFloat? = nil, height: CGFloat? = nil, load url: URL? = nil) -> WKWebView {
         let popup = AppWebView(frame: .zero, configuration: configuration)
-        if let o = opener, let id = owner[ObjectIdentifier(o)] { owner[ObjectIdentifier(popup)] = id }
+        if let o = opener, let id = openerToolID(for: o) { owner[ObjectIdentifier(popup)] = id }
         popup.navigationDelegate = self
         popup.uiDelegate = self
         let vf = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1280, height: 800)
@@ -743,18 +921,37 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
         win.makeKeyAndOrderFront(nil)
         popups.append(win)
         pageEvent(.opened, popup)
-        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: win, queue: .main) { [weak self] _ in
+        let winId = ObjectIdentifier(win)
+        let closeObs = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: win,
+            queue: .main
+        ) { [weak self] _ in
+            if let t = self?.popupCloseObs.removeValue(forKey: winId) {
+                NotificationCenter.default.removeObserver(t)
+            }
             self?.popups.removeAll { $0 === win }
             self?.owner.removeValue(forKey: ObjectIdentifier(popup))
             self?.pageEvent(.closed, popup)
         }
+        popupCloseObs[winId] = closeObs
         if let u = url { popup.load(URLRequest(url: u)) }
         return popup
     }
 
 
     func webViewDidClose(_ webView: WKWebView) {
-        if let win = popups.first(where: { $0.contentView === webView }) { win.close() }
+        // Handle floating popup close
+        if let win = popups.first(where: { $0.contentView === webView }) { win.close(); return }
+        
+        // Handle docked child close (window.close() called from JavaScript)
+        let manager = ChildPaneManager.shared
+        for (_, children) in manager.childPages {
+            if let child = children.first(where: { $0.webView === webView }) {
+                manager.close(child.id)
+                return
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,

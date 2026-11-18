@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var problem: String?
     @State private var monitor: Any?
     @State private var showDock = DockPrefs.showDockIcon
+    @State private var hideEarTabsInFullScreen = ChildPaneEarPrefs.hideEarTabsInFullScreen
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -43,6 +44,10 @@ struct SettingsView: View {
                     .onChange(of: showDock) { _, v in
                         DockPrefs.showDockIcon = v
                         NotificationCenter.default.post(name: .wtbDockIconChanged, object: nil)
+                    }
+                Toggle(L("全屏时隐藏标签"), isOn: $hideEarTabsInFullScreen)
+                    .onChange(of: hideEarTabsInFullScreen) { _, v in
+                        ChildPaneEarPrefs.hideEarTabsInFullScreen = v
                     }
                 Toggle(L("开机自动启动"), isOn: $openAtLogin)
                     .onChange(of: openAtLogin) { _, v in

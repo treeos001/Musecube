@@ -13,9 +13,17 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
     ],
     targets: [
+        .target(
+            name: "ChildPaneColorKit",
+            path: "Sources/ChildPaneColorKit",
+            linkerSettings: [.linkedFramework("AppKit")]
+        ),
         .executableTarget(
             name: "Musecube",
-            dependencies: isAppStore ? [] : [.product(name: "Sparkle", package: "Sparkle")],
+            dependencies: isAppStore ? ["ChildPaneColorKit"] : [
+                "ChildPaneColorKit",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/Musecube",
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -23,6 +31,6 @@ let package = Package(
                 .linkedFramework("Carbon"),
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
             ]
-        )
-    ]
+        ),
+        ]
 )

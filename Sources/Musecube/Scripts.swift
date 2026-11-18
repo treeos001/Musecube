@@ -210,4 +210,22 @@ enum Scripts {
   };
 })();
 """#
+
+    static let contextMenuLinkHelper = #"""
+(function () {
+  if (window.__wtbCtx) return; window.__wtbCtx = true;
+  var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.wtb;
+  if (!h) return;
+  document.addEventListener('contextmenu', function (e) {
+    var url = '';
+    var t = e.target;
+    if (t && t.closest) {
+      var a = t.closest('a[href]');
+      if (a) url = a.href;
+    }
+    if (!url && t && t.tagName === 'IMG' && t.src) url = t.src;
+    h.postMessage({ type: 'ctxnav', url: url });
+  }, true);
+})();
+"""#
 }

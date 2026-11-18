@@ -1,6 +1,9 @@
 # Build output
 .build/
 .build-*/
+/.buildSystem_release
+/.lock
+/CACHEDIR.TAG
 build/
 *.zip
 *.dmg
