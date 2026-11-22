@@ -141,6 +141,36 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
     func goForward() { if webView.canGoForward { webView.goForward() } }
     func reload() { if loadError != nil { retry() } else { webView.reload() } }
 
+    /// Reload a specific tool's main page, or load it if it is not in memory (e.g. evicted by LRU).
+    func reloadTool(_ tool: Tool) {
+        guard let url = URL(string: tool.url) else { return }
+        toolURLs[tool.id] = tool.url
+        toolNames[tool.id] = tool.name
+        knownTools[tool.id] = tool
+        if tool.id == currentToolID {
+            reload()
+            return
+        }
+        if let wv = pool[tool.id] {
+            errors.removeValue(forKey: tool.id)
+            errorKinds.removeValue(forKey: tool.id)
+            if let u = failedURLs.removeValue(forKey: tool.id) ?? URL(string: tool.url) {
+                wv.load(URLRequest(url: u))
+            } else {
+                wv.reload()
+            }
+        } else {
+            let wv = makeWebView(storeID: tool.storeID, toolID: tool.id, url: tool.url)
+            pool[tool.id] = wv
+            owner[ObjectIdentifier(wv)] = tool.id
+            wv.pageZoom = zoom(for: tool.id)
+            wv.load(URLRequest(url: url))
+        }
+        lru.removeAll { $0 == tool.id }
+        lru.insert(tool.id, at: 0)
+        trim()
+    }
+
     func retry() {
         guard let id = currentToolID else { return }
         errors.removeValue(forKey: id); errorKinds.removeValue(forKey: id)

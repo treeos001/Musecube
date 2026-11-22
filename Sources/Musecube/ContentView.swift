@@ -241,6 +241,7 @@ struct ContentView: View {
                                 .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                                 .accessibilityAction { store.selectedID = tool.id }
                                 .contextMenu {
+                                    Button(L("重新载入")) { web.reloadTool(tool) }
                                     Button(L("重命名…")) { renaming = tool }
                                     if FeatureFlags.simplifyEnabled {
                                         Button(L("清除此网站的自定义精简规则")) {
