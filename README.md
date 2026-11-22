@@ -46,7 +46,7 @@ Requirements: macOS 14+, Xcode or the Command Line Tools (Swift 5.9+).
 open build/Musecube.app
 ```
 
-`./build_app.sh` without `SIGN_IDENTITY` produces an ad-hoc signature. Do not distribute that build. A shareable build is signed, notarized, and stapled. See [RELEASING.md](RELEASING.md).
+When `SIGN_IDENTITY` is not set, `./build_app.sh` defaults to ad-hoc signing. You can run that build on your own Mac, but it is not suitable for distribution. To ship a build, set `SIGN_IDENTITY` to your own Developer ID Application certificate, and configure `SU_PUBLIC_ED_KEY` and the update feed URL yourself. This open-source repository does not include the maintainer's certificates or keys. Shareable builds are also signed with Developer ID, notarized, and stapled; see [RELEASING.md](RELEASING.md).
 
 ```bash
 SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./build_app.sh
@@ -83,7 +83,7 @@ Musecube 是一个原生 macOS 网页工具箱：把常用的网页工具收进�
 - **自己的网址**：从侧边栏底部的「＋ 添加」，或商店「我添加的」第一张卡片，粘贴任意 HTTPS 网址。同一网站的不同功能各占一条。
 - **其他**：登录按网站分开保存，同一网站共用。⌥M 快速打开。有菜单栏图标。关窗口后可在后台运行，也可开机自动启动。更新地址填上之前，Sparkle 不会检查更新。Google 登录弹窗的按钮是「在浏览器里使用」，到系统浏览器打开该工具，浏览器里的登录不会回到 App。
 - **隐私**：不追踪、不统计；不向第三方网页注入广告，不导入浏览器 cookie。页面里会注入一段很短的脚本，用来把网页生成的文件交给下载列表，保存前会再问一次。详见 [PRIVACY.md](PRIVACY.md)。
-- **关于**：侧边栏和 Musecube 菜单都有。窗口里是图标、名称和版本，然后两段左对齐正文（创作背景，免费开源和请咖啡），再是商标说明，然后是 “Buy a Coffee for Shukuinan” 和「反馈」。界面不写灵感盒。打赏打开 https://ko-fi.com/shukuinan，反馈打开本仓库的 GitHub Issues，都走系统浏览器，App 不记录点击。构建命令是 `./build_app.sh`。
+- **关于**：侧边栏和 Musecube 菜单都有。窗口里是图标、名称和版本，然后两段左对齐正文（创作背景，免费开源和请咖啡），再是商标说明，然后是 “Buy a Coffee for Shukuinan” 和「反馈」。界面不写灵感盒。打赏打开 https://ko-fi.com/shukuinan，反馈打开本仓库的 GitHub Issues，都走系统浏览器，App 不记录点击。构建命令是 `./build_app.sh`。未设置 `SIGN_IDENTITY` 时默认 ad-hoc 签名，本机可用，不宜对外分发；分发须用你自己的 Developer ID 设置 `SIGN_IDENTITY`，并自行配置 `SU_PUBLIC_ED_KEY` 与更新地址。开源仓库不含维护者的证书或密钥。
 - **工具目录**：描述由我们自己撰写。收录不等于安全审计。PairDrop 未收录。推荐新工具或申请下架，请在 GitHub Issues 提交。
 - **商标声明**：所列工具名称、图标与商标归各自所有者所有，与本产品无隶属、合作或背书关系。
 
