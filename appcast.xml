@@ -3,6 +3,14 @@
     <channel>
         <title>Musecube</title>
         <item>
+            <title>0.2.1</title>
+            <pubDate>Sun, 22 Nov 2026 11:01:02 +0800</pubDate>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>0.2.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/treeos001/Musecube/releases/download/v0.2.1/Musecube.zip" length="8179545" type="application/octet-stream" sparkle:edSignature="tEh6wy5yDmrJJrSAROjUaZ8bARtMeV0C0g5zZ/dvMkuvcLOm8I1emi8MWsVQGV5TNb+4JHyMHFWYtl+4LcR5BA=="/>
+        </item>
+        <item>
             <title>0.2.0</title>
             <pubDate>Wed, 18 Nov 2026 13:11:48 +0800</pubDate>
             <sparkle:version>3</sparkle:version>
